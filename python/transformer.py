@@ -484,7 +484,7 @@ class Batch:
         return trg_mask
     
     
-def run_epoch(data_iter, model, trainer, loss_fn, ctx = mx.cpu()):
+def run_epoch(epoch, data_iter, model, trainer, loss_fn, ctx = mx.cpu()):
     "Standard Training and Logging Function"
     start = time.time()
     total_tokens = 0
@@ -506,8 +506,6 @@ def run_epoch(data_iter, model, trainer, loss_fn, ctx = mx.cpu()):
             _idx = nd.array([_rows, _cols], ctx = ctx)
             _trg = nd.scatter_nd(nd.ones_like(trg_y.reshape(-1)), _idx, _out.shape)
             loss = nd.sum(loss_fn(_out, _trg))
-            #print('_trg_onehot = {}'.format(_trg))
-            #print('trg = {}'.format(trg_y[0]))
             loss.backward()
         trainer.step(out.shape[0])
         total_loss += loss.asnumpy()[0]
@@ -515,12 +513,7 @@ def run_epoch(data_iter, model, trainer, loss_fn, ctx = mx.cpu()):
         tokens += ntokens.asnumpy()[0]
         if i % 50 == 0:
             elapsed = time.time() - start
-            logger.info("Epoch Step: %d Loss: %f Tokens per Sec: %f" % (i, loss.asnumpy()[0] / ntokens.asnumpy()[0], tokens / elapsed))
-            #print('--------')
-            #print('loss = {}'.format(loss.asnumpy()))
-            #print('_pred = {}'.format(           nd.argmax(_out, axis = 1)[:9].asnumpy()))
-            #print('_trg_recover = {}'.format(nd.argmax(_trg, axis = 1)[:9].asnumpy()))
-            #print('--------')
+            logger.info("Epoch Step: %d Loss: %f Tokens per Sec: %f" % (epoch, loss.asnumpy()[0] / ntokens.asnumpy()[0], tokens / elapsed))
             start = time.time()
             tokens = 0
     return total_loss #/ total_tokens
@@ -540,11 +533,11 @@ if __name__ == "__main__":
     print('src sen len = {}'.format(len(src_sen)))
     
     # Task: copy 10 input integers
-    V = len(src_sen)
+    V = 10
     batch = 30
     n_batch = 20
-    in_seq_len = 10
-    out_seq_len = 10
+    in_seq_len = len(src_sen)
+    out_seq_len = len(src_sen)
     dropout = .1
     data = data_gen(V, batch, n_batch, in_seq_len, ctx = ctx)
     model = make_model(V, V, in_seq_len, out_seq_len, N = 2, dropout = .1, d_model = 128, ctx = ctx)
@@ -553,7 +546,7 @@ if __name__ == "__main__":
     loss = gluon.loss.KLDivLoss(from_logits = False)
 
     for epoch in range(50):
-        run_epoch(data_gen(V, batch, n_batch, in_seq_len, ctx = ctx), model, trainer, loss, ctx = ctx)
+        run_epoch(epoch, data_gen(V, batch, n_batch, in_seq_len, ctx = ctx), model, trainer, loss, ctx = ctx)
 
     def greedy_decode(model, src, src_mask, max_len, start_symbol):
         memory = model.encode(src, src_mask)
@@ -568,5 +561,5 @@ if __name__ == "__main__":
     print('src = {}'.format(src))
     src_mask = nd.ones_like(src)
     with autograd.predict_mode():
-        res = greedy_decode(model, src, src_mask, max_len=9, start_symbol=1)
+        res = greedy_decode(model, src, src_mask, max_len= out_seq_len - 1, start_symbol = 1)
     print('tgt = {}'.format(res))

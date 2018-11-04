@@ -6,5 +6,5 @@ A network only contains attention mechanism without underlying recurrent network
 # Usage
 
 ```
-python transformer.py
+python ./python/transformer.py -s 6,2,3,4,5,3,3,1
 ```
