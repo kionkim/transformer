@@ -59,7 +59,7 @@ def attention(query, key, value, mask = None, dropout = None):
 
 
 class MultiHeadedAttention(nn.Block):
-    def __init__(self, h, d_model, dropout = .1):
+    def __init__(self, h, d_model, dropout = 0):
         """
         Take in model size and number of heads.
         h: number of heads
@@ -71,13 +71,16 @@ class MultiHeadedAttention(nn.Block):
         self.h = h
         self.d_model = d_model
         self.dropout = nn.Dropout(dropout)
+        self.dense_layers = []
         with self.name_scope():
             self.attn = []
-            self.linear_q = nn.Dense(d_model, in_units = d_model, flatten = False)
-            self.linear_k = nn.Dense(d_model, in_units = d_model, flatten = False)
-            self.linear_v = nn.Dense(d_model, in_units = d_model, flatten = False)
-            self.linear_o = nn.Dense(d_model, in_units = d_model, flatten = False)
-        
+            for i in range(4):
+                dense = nn.Dense(d_model, in_units = d_model, flatten = False
+                               , weight_initializer = mx.init.Constant(1)
+                               , bias_initializer = mx.init.Constant(2))
+                self.register_child(dense)
+                self.dense_layers.append(dense)
+            
     def forward(self, query, key, value, mask = None):
         '''
         query: nd.array of size (batch, in_seq_len, embedding_dim)
@@ -89,18 +92,15 @@ class MultiHeadedAttention(nn.Block):
             mask = mask.expand_dims(axis = 1)
         batch = query.shape[0]
 
+        print('key shape in mha before linear= {}'.format(key.shape))
         # 1) Do all the linear projections in batch from d_model => h x d_k
-        query = self.linear_q(query)  
-        key = self.linear_k(key)
-        value = self.linear_v(value)
-        # Transform to (Batch size * H * d_model * Filters) 
-        # I.e., H headers of dimension d_model * Filters
+        # gluon does not accept more than two dim for Dense layer
+        # We have to reshape to two dim and reshape back to the original
+        res = [self.dense_layers[i](x) for i, x in enumerate([query, key, value])]
+        # Transform back to (Batch size * H * Embedding * Filters in each head)
         # Source and target sequences may differ in length. 
         # If we fix in_seq_len, there will be an error in Attention layer
-        query = query.reshape((batch, -1, self.h, self.d_k)).transpose((0, 2, 1, 3))
-        key = key.reshape((batch, -1, self.h, self.d_k)).transpose((0, 2, 1, 3))
-        value = value.reshape((batch, -1, self.h, self.d_k)).transpose((0, 2, 1, 3))
-        
+        query, key, value = [x.reshape((batch, -1, self.h, self.d_k)).transpose((0, 2, 1, 3)) for x in res]
         # 2) Apply attention on all the projected vectors in batch.
         x = []
         for i in range(self.h):
@@ -113,8 +113,10 @@ class MultiHeadedAttention(nn.Block):
             self.attn.append(_attn)
         # 3) "Concat"  
         x = nd.concat(*x, dim = 2)
-        # 4) Linear transofrmation
-        x = self.linear_o(x)
+        # Inflate batch
+        x = self.dense_layers[3](x)
+        # Transform back to the original
+        x = x.reshape((batch, -1, self.h * self.d_k)) # Batch size *  * 
         return x
 
     
