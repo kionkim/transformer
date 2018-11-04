@@ -516,31 +516,57 @@ def run_epoch(data_iter, model, trainer, loss_fn, ctx = mx.cpu()):
         if i % 50 == 0:
             elapsed = time.time() - start
             logger.info("Epoch Step: %d Loss: %f Tokens per Sec: %f" % (i, loss.asnumpy()[0] / ntokens.asnumpy()[0], tokens / elapsed))
-            print('--------')
-            print('loss = {}'.format(loss.asnumpy()))
-            print('_pred = {}'.format(           nd.argmax(_out, axis = 1)[:9].asnumpy()))
-            print('_trg_recover = {}'.format(nd.argmax(_trg, axis = 1)[:9].asnumpy()))
-            print('--------')
+            #print('--------')
+            #print('loss = {}'.format(loss.asnumpy()))
+            #print('_pred = {}'.format(           nd.argmax(_out, axis = 1)[:9].asnumpy()))
+            #print('_trg_recover = {}'.format(nd.argmax(_trg, axis = 1)[:9].asnumpy()))
+            #print('--------')
             start = time.time()
             tokens = 0
     return total_loss #/ total_tokens
 
 
 if __name__ == "__main__":
+    import argparse
+    from transformer import *
+    ctx = mx.gpu()
+
+    parser = argparse.ArgumentParser(description = '')
+    parser.add_argument('-s', '--list', help = 'source to copy', type = str)
+    args = parser.parse_args()
+    
+    src_sen = args.list.split(',')
+    print('src sen = {}'.format(src_sen))
+    print('src sen len = {}'.format(len(src_sen)))
+    
     # Task: copy 10 input integers
-    V = 20
+    V = len(src_sen)
     batch = 30
     n_batch = 20
     in_seq_len = 10
-    out_seq_len = 9
+    out_seq_len = 10
     dropout = .1
-    n_epoch = 10
-    data = data_gen(V, batch, n_batch, in_seq_len)
-    model = make_model(V, V, in_seq_len, out_seq_len, N=2, dropout = .1, ctx = ctx)
+    data = data_gen(V, batch, n_batch, in_seq_len, ctx = ctx)
+    model = make_model(V, V, in_seq_len, out_seq_len, N = 2, dropout = .1, d_model = 128, ctx = ctx)
     model.collect_params().initialize(mx.init.Xavier(), ctx = ctx)
-    trainer = gluon.Trainer(model.collect_params(), 'adam', {'learning_rate': 1e-2, 'beta1': 0.9, 'beta2': 0.98 , 'epsilon': 1e-9})
+    trainer = gluon.Trainer(model.collect_params(), 'adam', {'learning_rate': 1e-4, 'beta1': 0.9, 'beta2': 0.98 , 'epsilon': 1e-9})
     loss = gluon.loss.KLDivLoss(from_logits = False)
-    
-    
-    for epoch in range(n_epoch):
+
+    for epoch in range(50):
         run_epoch(data_gen(V, batch, n_batch, in_seq_len, ctx = ctx), model, trainer, loss, ctx = ctx)
+
+    def greedy_decode(model, src, src_mask, max_len, start_symbol):
+        memory = model.encode(src, src_mask)
+        ys = nd.array([[start_symbol]], ctx = ctx)
+        for i in range(max_len):
+            out = model.decode(memory, src_mask, ys, subsequent_mask(ys.shape[1]))
+            next_word = nd.argmax(out, axis = 2)
+            ys = nd.concat(ys, next_word[:,-1].expand_dims(axis = 1), dim = 1)
+        return ys
+
+    src = nd.array([src_sen], ctx = ctx)
+    print('src = {}'.format(src))
+    src_mask = nd.ones_like(src)
+    with autograd.predict_mode():
+        res = greedy_decode(model, src, src_mask, max_len=9, start_symbol=1)
+    print('tgt = {}'.format(res))
